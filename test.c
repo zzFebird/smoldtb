@@ -6,34 +6,36 @@
 #include <sys/stat.h>
 #include "smoldtb.h"
 
+#define B(x, n) ((uint8_t)(x >> (n * 8)) & 0xff)
+
 void dtb_on_error(const char* why)
 {
     printf("smol-dtb error: %s\r\n", why);
     exit(1);
 }
 
-void* dtb_malloc(size_t length)
+void* dtb_malloc(uint32_t length)
 {
     return malloc(length);
 }
 
-void print_node(dtb_node* node, size_t indent)
+void print_node(dtb_node* node, uint32_t indent)
 {
-    const size_t indent_scale = 2;
+    const uint32_t indent_scale = 2;
     if (node == NULL)
         return;
 
     char indent_buff[indent + 1];
-    for (size_t i = 0; i < indent; i++)
+    for (uint32_t i = 0; i < indent; i++)
         indent_buff[i] = ' ';
     indent_buff[indent] = 0;
     
     dtb_node_stat stat;
     dtb_stat_node(node, &stat);
-    printf("%s[+] %s: %lu siblings, %lu children, %lu properties.\r\n", indent_buff, 
+    printf("%s[+] %s: %u siblings, %u children, %u properties.\r\n", indent_buff, 
         stat.name, stat.sibling_count, stat.child_count, stat.prop_count);
 
-    for (size_t i = 0; i < stat.prop_count; i++)
+    for (uint32_t i = 0; i < stat.prop_count; i++)
     {
         dtb_prop* prop = dtb_get_prop(node, i);
         if (prop == NULL)
@@ -81,11 +83,64 @@ void display_file(const char* filename)
     ops.on_error = dtb_on_error;
     dtb_init((uintptr_t)buffer, ops);
 
-    dtb_node* root = dtb_find("/");
+#if 0
+    dtb_node *root = dtb_find("/");
     while (root != NULL)
     {
         print_node(root, 0);
         root = dtb_get_sibling(root);
+    }
+#endif
+
+    char byte;
+    uint32_t val;
+    dtb_node *node, *cpus;
+    dtb_prop *prop;
+    node = dtb_find("chosen");
+    if (node != NULL) {
+        prop = dtb_find_prop(node, "bootargs");
+        if (prop != NULL) {
+            dtb_read_prop_bytestring(prop, &byte);
+            printf("bootargs %d\n", byte);
+        }
+    }
+
+    cpus = dtb_find("cpus");
+    if (cpus != NULL) {
+        node = dtb_find_child(cpus, "cpu");
+        if (node != NULL) {
+            prop = dtb_find_prop(node, "phandle");
+            if (prop != NULL) {
+                dtb_read_prop_cell_array(prop, node->addr_cells, &val);
+                printf("cpus->cpu: phandle %u\n", val);
+            }
+        }
+
+        node = dtb_find_child(cpus, "cpu-map");
+        if (node != NULL) {
+            node = dtb_find_child(node, "cluster0");
+            if (node != NULL) {
+                node = dtb_find_child(node, "core1");
+                if (node != NULL) {
+                    prop = dtb_find_prop(node, "cpu");
+                    if (prop != NULL) {
+                        dtb_read_prop_cell_array(prop, node->addr_cells, &val);
+                        node = dtb_find_phandle(val);
+                        if (node != NULL) {
+                            printf("cpu-map->cluster0->core1: cpu %u, node %s\n", val, node->name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    node = dtb_find("soc");
+    if (node != NULL) {
+        node = dtb_find_compatible(node, "ns16550a");
+        if (node != NULL) {
+            printf("compatible ns16550a: %s\n", node->name);
+        }
     }
 
     munmap(buffer, sb.st_size);
